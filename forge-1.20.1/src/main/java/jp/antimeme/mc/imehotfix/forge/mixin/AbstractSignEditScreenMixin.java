@@ -263,11 +263,12 @@ public abstract class AbstractSignEditScreenMixin extends Screen implements ImeT
     }
 
     /**
-     * Marks the part of the composition that will not fit the line once it is confirmed.
+     * Marks the part of the composition that will not fit the current line once it is confirmed.
      *
      * <p>A sign line is limited by rendered width, so what is on screen while converting can be
-     * wider than what will actually be kept. The colour says which it is: it will move to the next
-     * line when auto-wrap can take it, otherwise it will be dropped.</p>
+     * wider than what will actually be kept. The overflow is split in two by measuring how much
+     * the remaining lines can really absorb: blue up to the point auto-wrap can still place it,
+     * red from where the sign runs out of room.</p>
      */
     @Unique
     private void imehotfix$drawOverflow(GuiGraphics graphics, String text, int origin, int top,
@@ -285,11 +286,55 @@ public abstract class AbstractSignEditScreenMixin extends Screen implements ImeT
             return;
         }
 
-        boolean wraps = ImeSupport.textboxOptions().signAutoWrap && this.line < IMEHOTFIX$LAST_LINE;
-        int left = origin + this.font.width(text.substring(0, from));
-        int right = origin + this.font.width(text.substring(0, compositionEnd));
-        graphics.fill(left, top - 1, right, underline + 1,
-                wraps ? options.overflowWrapTint : options.overflowDropTint);
+        int wrapEnd = Math.min(imehotfix$wrappableEnd(text, from), compositionEnd);
+
+        if (wrapEnd > from) {
+            graphics.fill(imehotfix$xOf(text, origin, from), top - 1,
+                    imehotfix$xOf(text, origin, wrapEnd), underline + 1, options.overflowWrapTint);
+        }
+        if (compositionEnd > wrapEnd) {
+            graphics.fill(imehotfix$xOf(text, origin, wrapEnd), top - 1,
+                    imehotfix$xOf(text, origin, compositionEnd), underline + 1,
+                    options.overflowDropTint);
+        }
+    }
+
+    @Unique
+    private int imehotfix$xOf(String text, int origin, int index) {
+        return origin + this.font.width(text.substring(0, index));
+    }
+
+    /**
+     * Walks the remaining lines the way auto-wrap will, and reports how far the overflow can
+     * actually be placed.
+     *
+     * <p>Measuring by width rather than assuming "anything past the last line is lost" matters:
+     * the lines below may already hold text, so the room left is not simply three lines' worth.
+     * </p>
+     *
+     * @return index at which the sign runs out of room; equal to {@code overflowStart} when
+     * nothing more fits at all
+     */
+    @Unique
+    private int imehotfix$wrappableEnd(String text, int overflowStart) {
+        if (!ImeSupport.textboxOptions().signAutoWrap) {
+            return overflowStart;
+        }
+
+        int maxWidth = this.sign.getMaxTextLineWidth();
+        int placed = overflowStart;
+
+        for (int target = this.line + 1; target <= IMEHOTFIX$LAST_LINE && placed < text.length();
+                target++) {
+            String existing = this.messages[target] == null ? "" : this.messages[target];
+            String candidate = existing + text.substring(placed);
+            int accepted = this.font.plainSubstrByWidth(candidate, maxWidth).length()
+                    - existing.length();
+            if (accepted > 0) {
+                placed += accepted;
+            }
+        }
+        return placed;
     }
 
     /**
