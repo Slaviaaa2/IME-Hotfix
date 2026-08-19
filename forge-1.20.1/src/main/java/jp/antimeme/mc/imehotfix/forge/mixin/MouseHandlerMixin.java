@@ -26,7 +26,7 @@ public abstract class MouseHandlerMixin {
     private void imehotfix$commitBeforeClick(long window, int button, int action, int modifiers,
                                              CallbackInfo callback) {
         if (action == GLFW.GLFW_PRESS) {
-            ImeClientHandler.commitCompositionIntoActiveField();
+            ImeClientHandler.commitCompositionIntoActiveTarget();
         }
     }
 }

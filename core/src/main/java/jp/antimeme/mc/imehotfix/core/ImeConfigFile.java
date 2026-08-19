@@ -58,8 +58,21 @@ public final class ImeConfigFile {
                 bool(properties, "commitCompositionOnBlur", options.commitCompositionOnBlur);
         options.cancelCompositionOnFocusLoss =
                 bool(properties, "cancelCompositionOnFocusLoss", options.cancelCompositionOnFocusLoss);
+        options.highlightOverflow =
+                bool(properties, "highlightOverflow", options.highlightOverflow);
         options.verboseLogging =
                 bool(properties, "verboseLogging", options.verboseLogging);
+
+        options.targetTint = color(properties, "targetTint", options.targetTint);
+        options.targetUnderline = color(properties, "targetUnderline", options.targetUnderline);
+        options.clauseUnderline = color(properties, "clauseUnderline", options.clauseUnderline);
+        options.errorUnderline = color(properties, "errorUnderline", options.errorUnderline);
+        options.overflowWrapTint = color(properties, "overflowWrapTint", options.overflowWrapTint);
+        options.overflowDropTint = color(properties, "overflowDropTint", options.overflowDropTint);
+
+        TextboxOptions textbox = ImeSupport.textboxOptions();
+        textbox.signAutoWrap = bool(properties, "signAutoWrap", textbox.signAutoWrap);
+        textbox.bookAutoPage = bool(properties, "bookAutoPage", textbox.bookAutoPage);
 
         // Rewrite the file so that keys added by a newer version show up with their defaults and
         // their explanations, instead of silently not existing.
@@ -82,7 +95,8 @@ public final class ImeConfigFile {
 
             writer.write("# IME Hotfix configuration");
             writer.newLine();
-            writer.newLine();
+
+            section(writer, "IME");
 
             comment(writer, "Detach the IME from the window while no text field is focused.");
             comment(writer, "Leave this on: while the IME owns the keyboard, Windows reports every");
@@ -118,12 +132,85 @@ public final class ImeConfigFile {
             comment(writer, "commit it to.");
             entry(writer, "cancelCompositionOnFocusLoss", options.cancelCompositionOnFocusLoss);
 
+            comment(writer, "Tint the part of the composition that will not survive being");
+            comment(writer, "confirmed, so it is obvious where the text is about to be cut.");
+            entry(writer, "highlightOverflow", options.highlightOverflow);
+
             comment(writer, "Log every IME window message. Very noisy; for diagnosing only.");
             entry(writer, "verboseLogging", options.verboseLogging);
+
+            section(writer, "Colours (0xAARRGGBB)");
+
+            comment(writer, "Behind the clause the IME is currently converting.");
+            colorEntry(writer, "targetTint", options.targetTint);
+
+            comment(writer, "Underline for the clause being converted.");
+            colorEntry(writer, "targetUnderline", options.targetUnderline);
+
+            comment(writer, "Underline for settled clauses.");
+            colorEntry(writer, "clauseUnderline", options.clauseUnderline);
+
+            comment(writer, "Underline for input the IME rejected.");
+            colorEntry(writer, "errorUnderline", options.errorUnderline);
+
+            comment(writer, "Behind text that will wrap to the next line or page when confirmed.");
+            colorEntry(writer, "overflowWrapTint", options.overflowWrapTint);
+
+            comment(writer, "Behind text that will be discarded when confirmed.");
+            colorEntry(writer, "overflowDropTint", options.overflowDropTint);
+
+            section(writer, "Textbox Improvements");
+            comment(writer, "These work for all typing, not just IME input.");
+            writer.newLine();
+
+            comment(writer, "When a character does not fit the current sign line, move to the next");
+            comment(writer, "line instead of dropping it. Vanilla silently discards it.");
+            entry(writer, "signAutoWrap", ImeSupport.textboxOptions().signAutoWrap);
+
+            comment(writer, "When a character does not fit the current book page, turn to the next");
+            comment(writer, "page - adding one if needed - instead of dropping it.");
+            entry(writer, "bookAutoPage", ImeSupport.textboxOptions().bookAutoPage);
         } catch (IOException error) {
             ImeSupport.logger().warn("Could not write " + file, error);
         } finally {
             closeQuietly(writer);
+        }
+    }
+
+    private static void section(BufferedWriter writer, String name) throws IOException {
+        writer.newLine();
+        writer.write("# ===================== " + name + " =====================");
+        writer.newLine();
+        writer.newLine();
+    }
+
+    private static void colorEntry(BufferedWriter writer, String key, int value) throws IOException {
+        writer.write(key + "=0x" + String.format("%08X", value));
+        writer.newLine();
+        writer.newLine();
+    }
+
+    /** Parses {@code 0xAARRGGBB}, {@code #RRGGBB} or a bare hex string. */
+    private static int color(Properties properties, String key, int fallback) {
+        String raw = properties.getProperty(key);
+        if (raw == null) {
+            return fallback;
+        }
+        raw = raw.trim();
+        if (raw.startsWith("#")) {
+            raw = raw.substring(1);
+        } else if (raw.startsWith("0x") || raw.startsWith("0X")) {
+            raw = raw.substring(2);
+        }
+        if (raw.isEmpty()) {
+            return fallback;
+        }
+        try {
+            // parseLong, because 0xFF...... overflows a signed int.
+            return (int) Long.parseLong(raw, 16);
+        } catch (NumberFormatException error) {
+            ImeSupport.logger().warn("Ignoring malformed colour for " + key + ": " + raw, null);
+            return fallback;
         }
     }
 

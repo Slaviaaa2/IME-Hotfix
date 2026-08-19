@@ -1,9 +1,11 @@
 package jp.antimeme.mc.imehotfix.forge.mixin;
 
+import jp.antimeme.mc.imehotfix.core.ImeOptions;
 import jp.antimeme.mc.imehotfix.core.ImePreedit;
 import jp.antimeme.mc.imehotfix.core.ImeSupport;
 import jp.antimeme.mc.imehotfix.core.PreeditStyle;
 import jp.antimeme.mc.imehotfix.forge.ImeClientHandler;
+import jp.antimeme.mc.imehotfix.forge.ImeTextTarget;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
@@ -40,20 +42,7 @@ import java.util.function.Consumer;
  * pollers and fires the responder. See {@code ImeClientHandler#publishCompositionChange}.</p>
  */
 @Mixin(EditBox.class)
-public abstract class EditBoxMixin {
-
-    @Unique
-    private static final int IMEHOTFIX$TARGET_TINT = 0x40FFFFFF;
-
-    @Unique
-    private static final int IMEHOTFIX$UNDERLINE_TARGET = 0xFFFFFFFF;
-
-    @Unique
-    private static final int IMEHOTFIX$UNDERLINE_PLAIN = 0xFFA0A0A0;
-
-    /** Used for {@code ATTR_INPUT_ERROR}: input the IME could not make sense of. */
-    @Unique
-    private static final int IMEHOTFIX$UNDERLINE_ERROR = 0xFFFF5555;
+public abstract class EditBoxMixin implements ImeTextTarget {
 
     /** Height of the caret rectangle handed to the IME, in GUI units. */
     @Unique
@@ -96,6 +85,19 @@ public abstract class EditBoxMixin {
     @Shadow
     public abstract int getInnerWidth();
 
+    @Shadow
+    public abstract void insertText(String text);
+
+    @Override
+    public void imehotfix$insertCommitted(String text) {
+        insertText(text);
+    }
+
+    @Override
+    public boolean imehotfix$reportsCompositionInValue() {
+        return true;
+    }
+
     @Unique
     private boolean imehotfix$swapped;
 
@@ -137,7 +139,7 @@ public abstract class EditBoxMixin {
         if (this.imehotfix$swapped || !ImeSupport.options().filterWithComposition) {
             return;
         }
-        if (!ImeClientHandler.isActiveField((EditBox) (Object) this)) {
+        if (!ImeClientHandler.isActiveTarget(this)) {
             return;
         }
         String composition = ImeClientHandler.publishedComposition();
@@ -198,7 +200,7 @@ public abstract class EditBoxMixin {
         if (focused || !this.canLoseFocus || !self.isFocused()) {
             return;
         }
-        ImeClientHandler.commitCompositionInto(self);
+        ImeClientHandler.commitCompositionInto(this);
     }
 
     @Inject(method = "renderWidget", at = @At("HEAD"))
@@ -214,7 +216,7 @@ public abstract class EditBoxMixin {
         }
 
         // This field is focused and editable, so the IME should be live this frame.
-        ImeClientHandler.markTextFieldActive((EditBox) (Object) this);
+        ImeClientHandler.markTextInputActive(this);
 
         if (!ImeSupport.options().inlinePreedit) {
             return;
@@ -298,13 +300,14 @@ public abstract class EditBoxMixin {
                 continue;
             }
 
+            ImeOptions options = ImeSupport.options();
             if (run.style().isTarget()) {
-                graphics.fill(left, top - 1, right, underline, IMEHOTFIX$TARGET_TINT);
-                graphics.fill(left, underline, right, underline + 2, IMEHOTFIX$UNDERLINE_TARGET);
+                graphics.fill(left, top - 1, right, underline, options.targetTint);
+                graphics.fill(left, underline, right, underline + 2, options.targetUnderline);
             } else if (run.style() == PreeditStyle.INPUT_ERROR) {
-                graphics.fill(left, underline, right, underline + 1, IMEHOTFIX$UNDERLINE_ERROR);
+                graphics.fill(left, underline, right, underline + 1, options.errorUnderline);
             } else {
-                graphics.fill(left, underline, right, underline + 1, IMEHOTFIX$UNDERLINE_PLAIN);
+                graphics.fill(left, underline, right, underline + 1, options.clauseUnderline);
             }
         }
     }
@@ -313,6 +316,11 @@ public abstract class EditBoxMixin {
     private void imehotfix$reportCaret(int absoluteIndex) {
         ImeClientHandler.reportCaret(
                 imehotfix$xAt(absoluteIndex), imehotfix$textTop(), 1, IMEHOTFIX$CARET_HEIGHT);
+
+        // Keep the candidate list off the field itself, not just off the caret.
+        EditBox self = (EditBox) (Object) this;
+        ImeClientHandler.reportExclusion(
+                self.getX(), self.getY(), self.getWidth(), self.getHeight());
     }
 
     /** X of a character offset in the widget's own coordinate space, clamped to what is visible. */

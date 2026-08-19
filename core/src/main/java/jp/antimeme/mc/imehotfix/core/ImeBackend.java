@@ -44,6 +44,15 @@ public interface ImeBackend {
      */
     void setCaretRect(int x, int y, int width, int height);
 
+    /**
+     * Reports the area the candidate list should stay clear of, in native window client pixels.
+     *
+     * <p>Without this the IME only knows to avoid the caret itself — a rectangle one pixel wide —
+     * so a multi-row candidate list happily covers the text right below it. Handing it the whole
+     * area the text occupies makes it place the list outside instead.</p>
+     */
+    void setExclusionRect(int x, int y, int width, int height);
+
     /** Asks the IME to drop any in-flight composition without committing it. */
     void cancelComposition();
 

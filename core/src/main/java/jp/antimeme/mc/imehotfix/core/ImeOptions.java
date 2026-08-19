@@ -55,8 +55,37 @@ public final class ImeOptions {
      */
     public volatile boolean cancelCompositionOnFocusLoss = true;
 
+    /**
+     * Tint the part of the composition that will not survive being confirmed, so it is obvious
+     * where the text is about to be cut.
+     *
+     * <p>The colour says what happens to it: {@link #overflowWrapTint} when it will move to the
+     * next line or page, {@link #overflowDropTint} when it will simply be thrown away.</p>
+     */
+    public volatile boolean highlightOverflow = true;
+
     /** Extra window-message tracing. Very noisy; off unless something needs diagnosing. */
     public volatile boolean verboseLogging = false;
+
+    // ---- colours, as 0xAARRGGBB -----------------------------------------------------------
+
+    /** Behind the clause the IME is currently converting. */
+    public volatile int targetTint = 0x40FFFFFF;
+
+    /** Underline for the clause being converted. */
+    public volatile int targetUnderline = 0xFFFFFFFF;
+
+    /** Underline for settled clauses. */
+    public volatile int clauseUnderline = 0xFFA0A0A0;
+
+    /** Underline for input the IME rejected ({@code ATTR_INPUT_ERROR}). */
+    public volatile int errorUnderline = 0xFFFF5555;
+
+    /** Behind text that will wrap to the next line or page when confirmed. */
+    public volatile int overflowWrapTint = 0x6033CCFF;
+
+    /** Behind text that will be discarded when confirmed. */
+    public volatile int overflowDropTint = 0x60FF3333;
 
     ImeOptions() {
     }

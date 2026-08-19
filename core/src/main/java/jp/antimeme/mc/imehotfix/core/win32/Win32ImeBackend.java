@@ -52,6 +52,11 @@ public final class Win32ImeBackend implements ImeBackend {
     private volatile int caretWidth = 1;
     private volatile int caretHeight = 12;
 
+    private volatile int exclusionX;
+    private volatile int exclusionY;
+    private volatile int exclusionWidth;
+    private volatile int exclusionHeight;
+
     @Override
     public synchronized boolean attach(long nativeWindowHandle) {
         if (this.attached) {
@@ -179,6 +184,22 @@ public final class Win32ImeBackend implements ImeBackend {
         this.caretY = y;
         this.caretWidth = Math.max(width, 1);
         this.caretHeight = Math.max(height, 1);
+
+        if (this.attached && this.composing) {
+            applyCaretToIme();
+        }
+    }
+
+    @Override
+    public void setExclusionRect(int x, int y, int width, int height) {
+        if (x == this.exclusionX && y == this.exclusionY
+                && width == this.exclusionWidth && height == this.exclusionHeight) {
+            return;
+        }
+        this.exclusionX = x;
+        this.exclusionY = y;
+        this.exclusionWidth = width;
+        this.exclusionHeight = height;
 
         if (this.attached && this.composing) {
             applyCaretToIme();
@@ -360,17 +381,27 @@ public final class Win32ImeBackend implements ImeBackend {
             composition.ptCurrentPos.y = this.caretY;
             Imm32.INSTANCE.ImmSetCompositionWindow(context, composition);
 
-            // CFS_EXCLUDE lets the IME place the candidate list clear of the caret rectangle
-            // instead of covering the text being typed.
+            // CFS_EXCLUDE asks the IME to keep the candidate list clear of rcArea. Excluding only
+            // the caret would let a multi-row list cover the text just below it, so the exclusion
+            // defaults to the whole area the text occupies when a screen reports one.
             CandidateForm candidate = new CandidateForm();
             candidate.dwIndex = 0;
             candidate.dwStyle = WinIme.CFS_EXCLUDE;
             candidate.ptCurrentPos.x = this.caretX;
             candidate.ptCurrentPos.y = this.caretY + this.caretHeight;
-            candidate.rcArea.left = this.caretX;
-            candidate.rcArea.top = this.caretY;
-            candidate.rcArea.right = this.caretX + this.caretWidth;
-            candidate.rcArea.bottom = this.caretY + this.caretHeight;
+
+            boolean hasExclusion = this.exclusionWidth > 0 && this.exclusionHeight > 0;
+            int left = hasExclusion ? this.exclusionX : this.caretX;
+            int top = hasExclusion ? this.exclusionY : this.caretY;
+            int right = hasExclusion ? this.exclusionX + this.exclusionWidth : this.caretX + this.caretWidth;
+            int bottom = hasExclusion ? this.exclusionY + this.exclusionHeight : this.caretY + this.caretHeight;
+
+            // The caret must stay inside the excluded area, otherwise the IME may place the list
+            // right on top of it.
+            candidate.rcArea.left = Math.min(left, this.caretX);
+            candidate.rcArea.top = Math.min(top, this.caretY);
+            candidate.rcArea.right = Math.max(right, this.caretX + this.caretWidth);
+            candidate.rcArea.bottom = Math.max(bottom, this.caretY + this.caretHeight);
             Imm32.INSTANCE.ImmSetCandidateWindow(context, candidate);
         } finally {
             this.applyingCaret = false;

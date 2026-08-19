@@ -8,8 +8,11 @@
     "defaultRequire": 1
   },
   "client": [
+    "AbstractSignEditScreenMixin",
+    "BookEditScreenMixin",
     "EditBoxMixin",
     "KeyboardHandlerAccessor",
-    "MouseHandlerMixin"
+    "MouseHandlerMixin",
+    "TextFieldHelperAccessor"
   ]
 }

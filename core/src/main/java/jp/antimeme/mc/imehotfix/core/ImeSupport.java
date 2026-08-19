@@ -16,6 +16,7 @@ import java.util.Locale;
 public final class ImeSupport {
 
     private static final ImeOptions OPTIONS = new ImeOptions();
+    private static final TextboxOptions TEXTBOX_OPTIONS = new TextboxOptions();
 
     private static volatile ImeBackend backend = NoopImeBackend.INSTANCE;
     private static volatile ImeLogger logger = ImeLogger.NOOP;
@@ -25,6 +26,11 @@ public final class ImeSupport {
 
     public static ImeOptions options() {
         return OPTIONS;
+    }
+
+    /** Settings for the "Textbox Improvements" features, which work independently of the IME. */
+    public static TextboxOptions textboxOptions() {
+        return TEXTBOX_OPTIONS;
     }
 
     public static ImeLogger logger() {
@@ -93,6 +99,11 @@ public final class ImeSupport {
 
     public static void setCaretRect(int x, int y, int width, int height) {
         backend.setCaretRect(x, y, width, height);
+    }
+
+    /** Area the candidate list should avoid covering, in native window client pixels. */
+    public static void setExclusionRect(int x, int y, int width, int height) {
+        backend.setExclusionRect(x, y, width, height);
     }
 
     public static void cancelComposition() {

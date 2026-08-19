@@ -6,7 +6,6 @@ import jp.antimeme.mc.imehotfix.core.ImeConfigFile;
 import jp.antimeme.mc.imehotfix.core.ImeLogger;
 import jp.antimeme.mc.imehotfix.core.ImeSupport;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import jp.antimeme.mc.imehotfix.forge.mixin.KeyboardHandlerAccessor;
 import net.minecraftforge.event.GameShuttingDownEvent;
@@ -61,12 +60,12 @@ public final class ImeClientHandler {
     private static int activeFrame = -1;
 
     /**
-     * The field that claimed IME focus this frame, so a composition can be committed into the
-     * box it was actually typed in. Cleared as soon as no field claims focus, which keeps this
-     * from pinning a screen's widgets in memory.
+     * The editor that claimed IME focus this frame, so a composition can be committed into the
+     * place it was actually typed. Cleared as soon as nothing claims focus, which keeps this from
+     * pinning a screen's widgets in memory.
      */
     @Nullable
-    private static EditBox activeField;
+    private static ImeTextTarget activeTarget;
 
     /**
      * Composition text as the screens currently see it through {@code EditBox.getValue()}. It
@@ -102,7 +101,7 @@ public final class ImeClientHandler {
         // END phases of this same frame.
         boolean active = activeFrame == frame;
         if (!active) {
-            activeField = null;
+            activeTarget = null;
         }
         ImeSupport.setInputActive(active);
         publishCompositionChange();
@@ -114,9 +113,9 @@ public final class ImeClientHandler {
         ImeSupport.uninstall();
     }
 
-    /** Called from the {@code EditBox} mixin while a focused, editable field is being drawn. */
-    public static void markTextFieldActive(EditBox field) {
-        activeField = field;
+    /** Called from the mixins while a focused, editable text target is being drawn. */
+    public static void markTextInputActive(ImeTextTarget target) {
+        activeTarget = target;
         activeFrame = frame;
     }
 
@@ -128,7 +127,7 @@ public final class ImeClientHandler {
      * frame later — by which point focus may sit on a different text box, which is exactly how
      * half-typed text used to walk from JEI's search field into the creative inventory's.</p>
      */
-    public static void commitCompositionInto(@Nullable EditBox field) {
+    public static void commitCompositionInto(@Nullable ImeTextTarget target) {
         if (!ImeSupport.isActive() || !ImeSupport.isComposing()) {
             return;
         }
@@ -145,19 +144,19 @@ public final class ImeClientHandler {
         publishedComposition = "";
         pendingComposition = "";
 
-        if (field != null && !composed.isEmpty()) {
-            field.insertText(composed);
+        if (target != null && !composed.isEmpty()) {
+            target.imehotfix$insertCommitted(composed);
         }
     }
 
-    /** Commits into whichever field currently holds IME focus. Used on mouse press. */
-    public static void commitCompositionIntoActiveField() {
-        commitCompositionInto(activeField);
+    /** Commits into whichever editor currently holds IME focus. Used on mouse press. */
+    public static void commitCompositionIntoActiveTarget() {
+        commitCompositionInto(activeTarget);
     }
 
-    /** @return {@code true} if this field is the one the IME is currently feeding. */
-    public static boolean isActiveField(EditBox field) {
-        return activeField == field;
+    /** @return {@code true} if this is the editor the IME is currently feeding. */
+    public static boolean isActiveTarget(ImeTextTarget target) {
+        return activeTarget == target;
     }
 
     /**
@@ -208,8 +207,11 @@ public final class ImeClientHandler {
 
         Minecraft minecraft = Minecraft.getInstance();
         Screen screen = minecraft.screen;
-        if (activeField == null || screen == null) {
-            // Nobody to tell; adopt the new text so the next real change is still detected.
+        if (activeTarget == null || screen == null
+                || !activeTarget.imehotfix$reportsCompositionInValue()) {
+            // Nobody to tell, or an editor that draws the composition itself and would take the
+            // synthetic character as literal input. Adopt the new text so the next real change is
+            // still detected.
             publishedComposition = composition;
             return;
         }
@@ -237,7 +239,27 @@ public final class ImeClientHandler {
         if (!ImeSupport.isActive()) {
             return;
         }
+        int[] rect = toClientPixels(guiX, guiY, guiWidth, guiHeight);
+        ImeSupport.setCaretRect(rect[0], rect[1], rect[2], rect[3]);
+    }
 
+    /**
+     * Reports the area the candidate list should not cover, in GUI coordinates.
+     *
+     * <p>Telling the IME only where the caret is leaves it free to drop a multi-row candidate list
+     * straight over the following lines of text. Screens that lay text out over an area — the book
+     * editor above all — report that whole area here so the list is placed outside it.</p>
+     */
+    public static void reportExclusion(int guiX, int guiY, int guiWidth, int guiHeight) {
+        if (!ImeSupport.isActive()) {
+            return;
+        }
+        int[] rect = toClientPixels(guiX, guiY, guiWidth, guiHeight);
+        ImeSupport.setExclusionRect(rect[0], rect[1], rect[2], rect[3]);
+    }
+
+    /** GUI coordinates to native window client pixels: {x, y, width, height}. */
+    private static int[] toClientPixels(int guiX, int guiY, int guiWidth, int guiHeight) {
         Window window = Minecraft.getInstance().getWindow();
         double scale = window.getGuiScale();
 
@@ -250,12 +272,12 @@ public final class ImeClientHandler {
                 ? (double) window.getScreenHeight() / (double) window.getHeight()
                 : 1.0D;
 
-        int x = (int) Math.round(guiX * scale * ratioX);
-        int y = (int) Math.round(guiY * scale * ratioY);
-        int width = Math.max(1, (int) Math.round(guiWidth * scale * ratioX));
-        int height = Math.max(1, (int) Math.round(guiHeight * scale * ratioY));
-
-        ImeSupport.setCaretRect(x, y, width, height);
+        return new int[]{
+                (int) Math.round(guiX * scale * ratioX),
+                (int) Math.round(guiY * scale * ratioY),
+                Math.max(1, (int) Math.round(guiWidth * scale * ratioX)),
+                Math.max(1, (int) Math.round(guiHeight * scale * ratioY))
+        };
     }
 
     private static void install() {

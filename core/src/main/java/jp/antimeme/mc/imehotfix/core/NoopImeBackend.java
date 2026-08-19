@@ -49,6 +49,10 @@ public final class NoopImeBackend implements ImeBackend {
     }
 
     @Override
+    public void setExclusionRect(int x, int y, int width, int height) {
+    }
+
+    @Override
     public void cancelComposition() {
     }
 

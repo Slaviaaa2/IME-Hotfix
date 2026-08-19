@@ -153,6 +153,61 @@ Win32 の定数・構造体・関数シグネチャはすべて Windows SDK 10.0
 
 ---
 
+## 4.7 看板・本と羽ペン [完了]
+
+どちらも `EditBox` を使わず、`TextFieldHelper` を直接操作して**テキストを自前で描画**する。既存の Mixin は一切効かず、さらに「テキスト欄にフォーカスが無い」と判定されて IME が切り離されるため、**日本語入力そのものができない**状態だった。
+
+確定先を `ImeTextTarget` インターフェースへ抽象化したうえで、個別に対応:
+
+| | 未確定文字の差し込み先 | キャレット座標 |
+|---|---|---|
+| 看板 (`AbstractSignEditScreen`) | `messages[line]`(描画中のみ) | 中央揃え・変換済み pose のため、現在の変換行列を通して画面座標へ |
+| 本 (`BookEditScreen`) | `pages.get(currentPage)` または `title`、レイアウトキャッシュを再構築 | 内部型が package-private のため、カーソル描画の呼び出しを `@Redirect` で捕捉 |
+
+**保存値は描画中だけ差し替えて即座に戻す。** 看板は画面を閉じるときに `messages` 配列がそのままサーバーへ送信されるため、ここを汚すと未確定文字が本当に書き込まれてしまう。
+
+**本の描画位置は行分割を自前で再計算して求める。** `DisplayCache` / `Pos2i` は package-private で参照できないが、`StringSplitter.splitLines(String, int, Style, boolean, LinePosConsumer)` は public なので、バニラと同じ引数(ページ幅 114)で呼べば同じ行分割が得られる。これにより下線・ハイライト・溢れ表示をすべて正しい行位置に描ける。アクセストランスフォーマーで可視性を変える必要はない。
+
+### 罠3: 合成した文字入力イベントが、それを求めていない画面に届く
+
+4.5 の合成イベント(半角スペース)は `EditBox` が握り潰す前提だった。看板・本には `EditBox` が無いため、**スペースが本物の入力として入り続けた**。症状は 3 つに見えたが原因は 1 つ:
+
+- 確定時に半角空白が付く
+- 字数超過時に大量の空白が生まれる(幅制限は日本語を弾くがスペースは通す)
+- 本の折り返しが崩れる(混入したスペースが改行位置になる)
+
+対処:
+- `ImeTextTarget#imehotfix$reportsCompositionInValue()` で、合成イベントを**必要とする対象にだけ送る**。看板・本は `false`
+- 看板・本の `charTyped` 側でも合成イベントを拒否する(二重の防御)
+
+### 罠4: `TextFieldHelper` は入りきらない挿入を丸ごと拒否する
+
+看板の行は「表示幅」で、本のページは文字数と高さで制限される。`insertText` は制限を超えると**何も挿入しない**ため、確定した変換文字が丸ごと消えていた。1 文字ずつ挿入して、入る分だけは残すようにした。
+
+---
+
+## 4.8 Textbox Improvements と溢れ可視化 [完了]
+
+IME とは独立した、テキスト入力そのものの改善。**全文字種**が対象で、文字確定時に働く。
+
+| 機能 | 実装 |
+|---|---|
+| 看板の自動折り返し | `charTyped` 内の `TextFieldHelper.charTyped` を `@Redirect`。値が変わらなければ「幅に入らなかった」ので次の行へ送る |
+| 本の自動次ページ | `charTyped` 内の `TextFieldHelper.insertText` を `@Redirect`。同様に `pageForward()` で次ページへ送る |
+
+**`charTyped` 自体を乗っ取らないこと。** バニラの `BookEditScreen.charTyped` は先に `super.charTyped` を呼んで widget へ配送している。HEAD で奪うとその経路が消える。挿入呼び出しだけを差し替えれば、判定に必要な「値が変わったか」も同じ場所で取れる。
+
+### 溢れの可視化
+
+確定時に入りきらない範囲を着色する。上限の求め方が対象ごとに違う:
+
+- 看板: `font.plainSubstrByWidth(text, sign.getMaxTextLineWidth()).length()`
+- 本: 行分割の結果が `128 / 9 = 14` 行を超えた位置、および 1024 文字目
+
+色は「送り先があるか」で決まる(水色 = 折り返される / 赤 = 捨てられる)。看板の最終行や自動折り返し無効時は赤になる。
+
+---
+
 ## 5. 進捗
 
 ### [完了] Forge 1.20.1
@@ -165,6 +220,10 @@ Win32 の定数・構造体・関数シグネチャはすべて Windows SDK 10.0
 - [完了] 未確定文字での検索フィルター(Search Items / JEI 双方の検知方式に対応)
 - [完了] 離脱時の確定処理
 - [完了] 実機での動作確認(チャット / Search Items / JEI / レシピ本)
+- [完了] 看板(通常・吊り)と本・羽ペンへの対応
+- [完了] 候補ウィンドウの除外領域(テキスト領域全体を通知し、複数行の候補が本文を覆わないように)
+- [完了] Textbox Improvements(看板の自動折り返し / 本の自動次ページ)
+- [完了] 溢れ範囲の可視化と、色・機能の設定化
 
 ### 今後: 横展開
 core は無変更で流用できるため、各ポートで必要なのは「`EditBox` 相当への Mixin」と「フレームフック」だけ。
@@ -195,6 +254,9 @@ core は無変更で流用できるため、各ポートで必要なのは「`Ed
 | `inlinePreedit` | true | 未確定文字列をテキスト欄内に描画 |
 | `pinCandidateWindowToCaret` | true | 候補ウィンドウをキャレットに追従 |
 | `filterWithComposition` | true | 変換確定前の文字でも検索を絞り込む |
+| `highlightOverflow` | true | 確定時に入りきらない部分に色を付ける |
+| `signAutoWrap` / `bookAutoPage` | true | Textbox Improvements |
+| 各種色 (`targetTint` 等) | — | `0xAARRGGBB` で指定 |
 | `commitCompositionOnBlur` | true | 離脱時に未確定文字列をその欄へ確定 |
 | `cancelCompositionOnFocusLoss` | true | 確定先が無い場合(画面が閉じた等)に破棄 |
 | `verboseLogging` | false | IME ウィンドウメッセージを全部ログに出す(診断用) |
