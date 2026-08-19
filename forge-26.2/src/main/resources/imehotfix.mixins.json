@@ -1,0 +1,18 @@
+{
+  "required": true,
+  "minVersion": "0.8.7",
+  "package": "jp.antimeme.mc.imehotfix.forge.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "client": [
+    "AbstractSignEditScreenMixin",
+    "BookEditScreenMixin",
+    "CreativeModeInventoryScreenMixin",
+    "EditBoxMixin",
+    "MultiLineEditBoxMixin",
+    "MultilineTextFieldAccessor",
+    "TextFieldHelperAccessor"
+  ]
+}

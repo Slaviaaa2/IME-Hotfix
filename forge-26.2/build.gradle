@@ -1,0 +1,64 @@
+plugins {
+    id 'java'
+    id 'idea'
+    id 'eclipse'
+    id 'net.minecraftforge.gradle' version '[7.0.17,8)'
+}
+
+version = mod_version
+group = mod_group_id
+base.archivesName = "${mod_id}-forge-${minecraft_version}"
+
+// Mojang ships Java 25 to end users in 26.1+.
+java.toolchain.languageVersion = JavaLanguageVersion.of(25)
+
+// The platform-agnostic core lives outside this project so that other
+// loader/version ports can share it verbatim.
+sourceSets.main.java.srcDir '../core/src/main/java'
+
+minecraft {
+    runs {
+        configureEach {
+            workingDir.convention layout.projectDirectory.dir('run')
+
+            // Mixin needs the config named either here or in the jar manifest.
+            args "--mixin.config=${mod_id}.mixins.json"
+        }
+
+        // Client-only mod: there is no server run configuration on purpose.
+        register('client')
+    }
+}
+
+repositories {
+    minecraft.mavenizer(it)
+    maven fg.forgeMaven
+    maven fg.minecraftLibsMaven
+    mavenCentral()
+}
+
+dependencies {
+    implementation minecraft.dependency("net.minecraftforge:forge:${minecraft_version}-${forge_version}")
+
+    // No Mixin annotation processor on purpose: Minecraft 26.2 ships unobfuscated, so there are
+    // no mappings to resolve and no refmap to generate. Running the processor only makes it fail
+    // looking for an obfuscation mapping that does not exist.
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.named('jar', Jar) {
+    manifest {
+        attributes([
+                'MixinConfigs'            : "${mod_id}.mixins.json",
+                'Specification-Title'     : mod_id,
+                'Specification-Vendor'    : mod_authors,
+                'Specification-Version'   : '1',
+                'Implementation-Title'    : project.name,
+                'Implementation-Version'  : project.version,
+                'Implementation-Vendor'   : mod_authors
+        ])
+    }
+}

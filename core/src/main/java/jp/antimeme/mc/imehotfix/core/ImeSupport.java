@@ -67,6 +67,29 @@ public final class ImeSupport {
         return false;
     }
 
+    /**
+     * Installs a backend the port supplies itself, instead of picking one by platform.
+     *
+     * <p>Used where the game already receives compositions and only the presentation is being
+     * replaced — see {@link ExternalImeBackend}.</p>
+     */
+    public static synchronized boolean installBackend(ImeBackend candidate, ImeLogger log) {
+        logger = log == null ? ImeLogger.NOOP : log;
+
+        if (backend.isAttached()) {
+            logger.debug("IME backend already installed; ignoring duplicate install()");
+            return true;
+        }
+        if (candidate == null || !candidate.attach(0L)) {
+            logger.warn("Supplied IME backend refused to attach", null);
+            return false;
+        }
+
+        backend = candidate;
+        logger.info("IME support active (" + candidate.describe() + ")");
+        return true;
+    }
+
     public static synchronized void uninstall() {
         ImeBackend current = backend;
         backend = NoopImeBackend.INSTANCE;

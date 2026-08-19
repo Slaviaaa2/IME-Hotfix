@@ -208,6 +208,58 @@ IME とは独立した、テキスト入力そのものの改善。**全文字�
 
 ---
 
+## 4.9 Minecraft 26.2 対応 [完了 / 一部既知の不具合]
+
+### 前提が根本から違う
+
+26.2 は **LWJGL 3.4.1 の GLFW を使い、そこには入力メソッド API が入っている**(`glfwSetPreeditCallback` / `glfwSetPreeditCursorRectangle` / `glfwGetPreeditCandidate`)。1.20.1 の 3.3.1 には 1 つも存在しない(実測 0 件)。
+
+さらに **Mojang 自身が既に IME 対応を実装している**:
+
+| クラス | 役割 |
+|---|---|
+| `PreeditEvent` | `fullText` / `caretPosition` / `blocks`(文節) / `focusedBlock` |
+| `EditBox.preeditUpdated()` | widget が未確定文字を受け取る |
+| `IMEPreeditOverlay` | 未確定文字を**入力欄の外**に浮かぶボックスで描画 |
+| `TextInputManager.setTextInputArea()` | `glfwSetPreeditCursorRectangle` を呼ぶ |
+
+したがって 26.2 版で置き換えるのは「受信」ではなく **表示** と、バニラに無い **検索反映 / 自動折り返し / 自動次ページ / 溢れ可視化** のみ。
+
+- Win32 の WndProc 乗っ取りも JNA も不要
+- **全プラットフォームで動く**
+- core は `ExternalImeBackend`(ゲームから受け取った未確定文字を保持するだけ)を足すのみで、**既存コードは 1 行も変更していない**
+
+### 26.2 固有の注意点
+
+**難読化が廃止されている。** refmap も Mixin の注釈プロセッサも不要。ただし **AP を外すと `@Shadow` の実在検証も失われ**、誤りがビルドで止まらず実行時クラッシュになる。`@Shadow` を書くたびにソースと突き合わせること。
+
+**`@Shadow` は継承階層を辿らない。** フィールドもメソッドも、ターゲットクラス自身に宣言されているものしか解決できない。この件で 2 度クラッシュさせた:
+
+- 看板の `font` → 親 `Screen` のフィールド。Mixin を `extends Screen` にして解決
+- 本の `getInnerLeft()` / `getInnerTop()` → 親 `AbstractTextAreaWidget` のメソッド。公開 API から再計算して解決(`getX() + innerPadding()`、`innerPadding()` は 4 固定)
+
+**`setTextInputArea` はキャレット矩形であって除外領域ではない。** Win32 の `ImmSetCandidateWindow(CFS_EXCLUDE)` と混同して入力欄全体を渡したところ、IME が候補ウィンドウを表示しなくなった。1.20.1 の設計をそのまま持ち込めない箇所。
+
+**`Minecraft.screen` は無くなり `Minecraft.gui.screen()` に移動している。**
+
+**本の作りが変わった。** 1.20.1 の `TextFieldHelper` + 自前描画から `MultiLineEditBox`(内部は `MultilineTextField`)へ。署名も別画面に分離。表示差し替えには `setValue` を使ってはならない — 値リスナーが発火して本が「編集済み」になる。フィールドを直接書き、`reflowDisplayLines()` だけを呼ぶ。
+
+### 既知の不具合(未解決)
+
+**26.2 の本と羽ペンでのみ**、未確定文字が長くなると下線が前半に付かない / 未変換で打ち続けると勝手に確定される。検索窓・看板・チャットでは再現しない。
+
+原因は未特定。以下は調査済みだが**いずれも原因ではなかった**:
+
+- 描画開始位置の推定(バニラの描画呼び出しから取得 → 公開 API から計算に変更しても再現)
+- IME への位置通知の頻度(毎フレーム → 変化時のみに変更しても再現)
+- `innerPadding` のオーバーライド(無い、4 固定)、折り返し幅(バニラと同一の値を使用)
+
+未調査の候補: この widget は**スクロールする**(`AbstractScrollArea`)。未確定文字でページの 14 行を超えるとカーソル追従でスクロールが発生するため、描画座標との相互作用が疑わしい。
+
+回避策は `inlinePreedit=false`(全体がバニラ表示に戻る)。
+
+---
+
 ## 5. 進捗
 
 ### [完了] Forge 1.20.1
@@ -231,10 +283,23 @@ core は無変更で流用できるため、各ポートで必要なのは「`Ed
 | 対象 | 状態 | 想定される差分 |
 |---|---|---|
 | Forge 1.20.1 | 完了 | — |
+| Forge 26.2 | 完了(本に既知の不具合) | GLFW 3.4 の IME API に乗る。Win32 不要・全 OS 対応 |
 | NeoForge 1.20.4 / 1.21.x | 未着手 | イベント名(`ClientTickEvent` → `ClientTickEvent.Post` 等)、`EditBox` の内部フィールド名 |
 | Fabric 1.20.1 / 1.21.x | 未着手 | Loom + `ClientTickEvents`、`FabricLoader.getConfigDir()` |
 | Forge 1.19.2 / 1.18.2 / 1.16.5 | 未着手 | `renderWidget` → `renderButton`、`GuiGraphics` → `PoseStack` |
 | Forge 1.12.2 | 未着手 | Java 8 / JNA 4.4(`Memory` が `Closeable` でない)/ `GuiTextField` は `EditBox` ではない |
+| Forge 1.8.9 | 未着手 | **LWJGL 2**。GLFW ではないため HWND 取得方法が別 / JNA 3.4 |
+| Forge 1.7.10 | 未着手 | 同上、かつ **JNA が同梱されていない**ため自前で同梱が必要 |
+
+調査済みの前提(piston-meta の実データ):
+
+| 版 | Java | ウィンドウ層 | JNA |
+|---|---|---|---|
+| 26.2 | 25 | GLFW 3.4.1(**IME API あり**) | 5.17.0 |
+| 1.19.2 | 17 | GLFW 3.3.1 | 5.10.0 |
+| 1.12.2 | 8 | **LWJGL 2** 2.9.4 | 4.4.0 |
+| 1.8.9 | 8 | **LWJGL 2** 2.9.4 | 3.4.0 |
+| 1.7.10 | 8 | **LWJGL 2** 2.9.1 | **無し** |
 
 移植時の要注意点:
 - 1.19.4 以前は描画メソッドが `renderButton(PoseStack, int, int, float)`。`GuiGraphics.fill` も `AbstractWidget.fill` / `GuiComponent.fill` になる。
